@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "gameId": "BrokenSlotGame",
+  "apiVersion": 1,
+  "defaultLocale": "en",
+  "locales": {
+    "en": { "name": "Broken Slot", "description": "Fixture with planted bugs for pipeline testing." }
+  },
+  "presentation": {
+    "mode": "popup",
+    "minHeight": 800,
+    "hostPanels": { "openSession": false, "history": false }
+  },
+  "capabilities": {
+    "openSession": false,
+    "submitAction": false,
+    "forfeitExpiredSession": false,
+    "cancelStuckRandomness": false,
+    "resize": true
+  }
+}

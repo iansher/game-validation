@@ -1,0 +1,59 @@
+{
+  "_notes": {
+    "sources": [
+      "casino-games-docs SDK bundle (pixel-spin-onchain/SDK Standard/casino-games-docs_(1)/casino-games-docs)",
+      "chain-contracts-main/contracts/Casino/games/ICasinoGameV2.sol (protocol repo)",
+      "happydaze/contracts/ICasinoGameV2.sol + HappydazeSlots.sol (real working game integration)"
+    ],
+    "interface_version_drift_warning": "Three local copies of ICasinoGameV2.sol disagree: chain-contracts-main (protocol repo, == casino-sdk/contracts) has a `uint8 outcome` field on StepResult but NO quoteRiskParams and NO quoteForfeitPayout; the SDK docs bundle adds quoteRiskParams but still has no quoteForfeitPayout; happydaze (a real shipped integration) drops the `outcome` field but has BOTH quoteRiskParams and quoteForfeitPayout. rubric/ICasinoGameV2.sol uses happydaze's version (the superset / most-current-looking) as the reference for interface checks. This needs a definitive answer from whoever owns the protocol repo before this pipeline is trusted for real submissions -- see README 'Open questions'.",
+    "interface_reference_file": "rubric/ICasinoGameV2.sol"
+  },
+  "required_functions": [
+    {"name": "quoteCaps", "signature": "quoteCaps(uint256,bytes)", "state_mutability": "view"},
+    {"name": "quoteRiskParams", "signature": "quoteRiskParams(uint256,bytes)", "state_mutability": "view"},
+    {"name": "onSessionStart", "signature": "onSessionStart((uint256,address,address,uint256,uint256,uint256,uint32,bytes,bytes))", "state_mutability": "view"},
+    {"name": "onPlayerAction", "signature": "onPlayerAction((uint256,address,address,uint256,uint256,uint256,uint32,bytes,bytes),bytes)", "state_mutability": "view"},
+    {"name": "onRandomness", "signature": "onRandomness((uint256,address,address,uint256,uint256,uint256,uint32,bytes,bytes),bytes32)", "state_mutability": "view"},
+    {"name": "quoteForfeitPayout", "signature": "quoteForfeitPayout((uint256,address,address,uint256,uint256,uint256,uint32,bytes,bytes))", "state_mutability": "view"}
+  ],
+  "rules": [
+    {"id": "COMPILE-01", "category": "interface", "check_type": "static", "severity": "critical", "description": "Contract(s) compile cleanly under solc ^0.8.30 via forge build."},
+    {"id": "IFACE-01", "category": "interface", "check_type": "static", "severity": "critical", "description": "Contract implements all required ICasinoGameV2 functions with matching selectors (per rubric/ICasinoGameV2.sol)."},
+    {"id": "IFACE-02", "category": "interface", "check_type": "static", "severity": "critical", "description": "quoteCaps, quoteRiskParams, onSessionStart, onPlayerAction, onRandomness, quoteForfeitPayout are all declared view or pure (no state mutation) -- checked via ABI stateMutability."},
+    {"id": "SEC-01", "category": "security", "check_type": "static", "severity": "critical", "description": "No selfdestruct usage."},
+    {"id": "SEC-02", "category": "security", "check_type": "static", "severity": "high", "description": "No delegatecall usage."},
+    {"id": "SEC-03", "category": "security", "check_type": "static", "severity": "high", "description": "No tx.origin usage (phishing/auth bypass vector)."},
+    {"id": "SEC-04", "category": "security", "check_type": "static", "severity": "medium", "description": "Low-level value-call patterns (.call{value:) flagged for manual/AI review."},
+    {"id": "SEC-05", "category": "security", "check_type": "static", "severity": "high", "description": "block.timestamp / blockhash / block.prevrandao / block.difficulty not used as a randomness source -- randomness must come only from the onRandomness callback parameter."},
+    {"id": "SEC-06", "category": "security", "check_type": "static", "severity": "medium", "description": "Inline assembly blocks flagged for manual/AI review."},
+    {"id": "SEC-07", "category": "security", "check_type": "static", "severity": "varies", "description": "forge lint (high/medium severity) findings surfaced directly."},
+    {"id": "SEC-08", "category": "risk", "check_type": "static", "severity": "medium", "description": "No use of a stale `probabilityBps` field name -- the live interface uses `probabilityWad`."},
+    {"id": "MANIFEST-01", "category": "manifest", "check_type": "static", "severity": "critical", "description": "game.manifest.json exists at the guest's own origin/root."},
+    {"id": "MANIFEST-02", "category": "manifest", "check_type": "static", "severity": "critical", "description": "schemaVersion == 1."},
+    {"id": "MANIFEST-03", "category": "manifest", "check_type": "static", "severity": "critical", "description": "gameId is a non-empty string."},
+    {"id": "MANIFEST-04", "category": "manifest", "check_type": "static", "severity": "critical", "description": "apiVersion == 1."},
+    {"id": "MANIFEST-05", "category": "manifest", "check_type": "static", "severity": "critical", "description": "defaultLocale is non-empty and present in locales with a non-empty name."},
+    {"id": "MANIFEST-06", "category": "manifest", "check_type": "static", "severity": "high", "description": "presentation.mode is 'full-iframe' or 'embedded'."},
+    {"id": "MANIFEST-07", "category": "manifest", "check_type": "static", "severity": "medium", "description": "presentation.minHeight is a finite number."},
+    {"id": "MANIFEST-08", "category": "manifest", "check_type": "static", "severity": "high", "description": "presentation.hostPanels.{openSession,history,status} are booleans."},
+    {"id": "MANIFEST-09", "category": "manifest", "check_type": "static", "severity": "critical", "description": "capabilities.{openSession,submitAction,forfeitExpiredSession,cancelStuckRandomness,resize} are all booleans present, and capabilities.openSession === true for a betting game."},
+    {"id": "MANIFEST-10", "category": "manifest", "check_type": "static", "severity": "info", "description": "gameId's canonical form (strip trailing 'Game', lowercase, strip non-alphanumerics) is plausible given the contract name -- informational, real check happens at whitelist/registration time."},
+    {"id": "UI-01", "category": "ui_bridge", "check_type": "static", "severity": "critical", "description": "Guest code never signs or broadcasts a transaction and never connects a wallet directly (no ethers.Wallet/signTransaction/sendTransaction/window.ethereum.request signing calls) -- it must only call hostApi.openSession/submitAction/cancelStuckRandomness."},
+    {"id": "UI-02", "category": "ui_bridge", "check_type": "static", "severity": "high", "description": "postMessage/Penpal allowedOrigins does not silently resolve to '*' in a way that looks production-bound (dev-only per VISUAL_AND_UX.md)."},
+    {"id": "UI-03", "category": "ui_bridge", "check_type": "static", "severity": "info", "description": "Guest code visibly uses the SDK bridge pattern (connectGameToHost / Penpal WindowMessenger) rather than a custom/ad-hoc protocol."},
+    {"id": "UI-04", "category": "ui_bridge", "check_type": "static", "severity": "varies", "description": "npm audit high/critical advisories in guest dependencies."},
+    {"id": "UI-05", "category": "ui_bridge", "check_type": "static", "severity": "low", "description": "ESLint / tsc pass, if a config is present (best-effort, non-blocking if absent)."},
+    {"id": "SEM-01", "category": "semantics", "check_type": "ai", "severity": "high", "description": "gameData is decoded identically (same paytable/variant) across quoteCaps, quoteRiskParams, and onSessionStart/onRandomness."},
+    {"id": "SEM-02", "category": "semantics", "check_type": "ai", "severity": "high", "description": "onPlayerAction correctly reverts for instant/single-step games with no legitimate mid-round action, or correctly validates/handles actions for multi-step games."},
+    {"id": "SEM-03", "category": "risk", "check_type": "ai", "severity": "critical", "description": "The actual payout produced by onRandomness/onPlayerAction can never exceed the maxPayout quoted by quoteRiskParams for the same wager/gameData, across every reachable code path."},
+    {"id": "SEM-04", "category": "risk", "check_type": "ai", "severity": "critical", "description": "probabilityWad is the probability of the top-tier/jackpot outcome specifically (not 'any win' or an average), is <= 1e18, and is internally consistent with the contract's own odds table."},
+    {"id": "SEM-05", "category": "risk", "check_type": "ai", "severity": "high", "description": "expectedPayout matches the RTP actually implied by the paytable/weights used in onRandomness (no drift between quoted and simulated RTP)."},
+    {"id": "SEM-06", "category": "interface", "check_type": "ai", "severity": "high", "description": "Session phase-machine transitions (nextPhase / requestRandomnessNow) are correct for the game's step pattern and cannot be driven into an invalid or permanently stuck state."},
+    {"id": "SEM-07", "category": "interface", "check_type": "ai", "severity": "medium", "description": "onSessionStart is deterministic and side-effect-free enough to be safely called twice (once as a sessionId==0 simulation, per CONTRACT_CONSTRAINTS.md)."},
+    {"id": "SEM-08", "category": "ui_bridge", "check_type": "ai", "severity": "high", "description": "UI never independently computes or lets the player submit a payout figure that isn't sourced from host-pushed on-chain state (gameState/balances are hints only; facet + game contract are authoritative)."},
+    {"id": "SEM-09", "category": "security", "check_type": "ai", "severity": "critical", "description": "General security review: reentrancy-shaped external calls, backdoors/owner bypass, hardcoded addresses or credentials, obfuscated or suspicious logic not caught by the static grep rules."},
+    {"id": "SEM-10", "category": "ui_bridge", "check_type": "ai", "severity": "medium", "description": "UI-contract integration correctness: guest's hostApi.openSession/submitAction gameData encoding matches what the contract actually decodes; sessionKey correlation is handled correctly."},
+    {"id": "SEM-11", "category": "manifest", "check_type": "ai", "severity": "low", "description": "manifest capabilities truthfully reflect the contract's actual shape (e.g. submitAction:false for a contract whose onPlayerAction always reverts)."},
+    {"id": "SEM-12", "category": "risk", "check_type": "ai", "severity": "medium", "description": "Narrative risk-engine compliance: if maxPayout/wager exceeds ~100x and probabilityWad is under ~0.1%, the game is heavy-tail and should be flagged as such for the tiered jackpot-reserve path rather than naive VaR."}
+  ]
+}
