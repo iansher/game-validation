@@ -22,7 +22,16 @@ WALLET_SIGNING_PATTERNS = [
     r"window\.ethereum\.request\s*\(\s*\{\s*method:\s*['\"]eth_sendTransaction",
 ]
 
-ORIGIN_WILDCARD_PATTERN = r"allowedOrigins\s*[:=][^\n;]*['\"]\*['\"]"
+# Two shapes seen in the wild: an inline assignment (`allowedOrigins: '*'`)
+# and a helper that *returns* the wildcard on a separate line (e.g.
+# `allowedOrigins: getAllowedParentOrigins()` where that function has
+# `return ['*']` elsewhere) -- the second form is common enough (found in
+# happydaze's own host-entry.js) that it needs its own pattern rather than
+# widening the first one into false-positive territory.
+ORIGIN_WILDCARD_PATTERNS = [
+    r"allowedOrigins\s*[:=][^\n;]*['\"]\*['\"]",
+    r"return\s*\[\s*['\"]\*['\"]\s*\]",
+]
 
 BRIDGE_USAGE_PATTERNS = [
     r"connectGameToHost",
@@ -60,10 +69,10 @@ def check_wallet_signing(ui_files: List[Path]) -> List[Dict]:
 
 
 def check_origin_wildcard(ui_files: List[Path]) -> List[Dict]:
-    hits = _grep_all(ui_files, [ORIGIN_WILDCARD_PATTERN])
+    hits = _grep_all(ui_files, ORIGIN_WILDCARD_PATTERNS)
     return [{
         "rule_id": "UI-02", "severity": "high",
-        "title": "postMessage allowedOrigins resolves to '*' (dev-only per VISUAL_AND_UX.md)",
+        "title": "postMessage allowedOrigins resolves to '*' (dev-only per CHAIN_WTF_CASINO_GAMES.md sections 3.2/8.2)",
         "detail": f"{h['file']}:{h['line']}: {h['snippet']}",
     } for h in hits]
 
