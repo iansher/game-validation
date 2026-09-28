@@ -27,7 +27,7 @@ DANGEROUS_PATTERNS = [
     ("SEC-01", "critical", "selfdestruct", r"\bselfdestruct\s*\("),
     ("SEC-02", "high", "delegatecall", r"\.delegatecall\s*\("),
     ("SEC-03", "high", "tx.origin", r"\btx\.origin\b"),
-    ("SEC-04", "medium", "low-level value call", r"\.call\{[^}]*value\s*:"),
+    ("SEC-04", "high", "low-level value call", r"\.call\{[^}]*value\s*:"),
     ("SEC-05", "high", "block.timestamp as apparent randomness source",
      r"\b(block\.timestamp|blockhash\s*\(|block\.prevrandao|block\.difficulty)\b"),
     ("SEC-06", "medium", "inline assembly", r"\bassembly\s*\{"),
@@ -224,6 +224,37 @@ def run_lint(contracts: List[Path]) -> Dict:
     return {"returncode": proc.returncode, "output": (proc.stdout + proc.stderr)[-6000:]}
 
 
+SMALL_MODULUS_PATTERN = re.compile(r"randomness[^\n;]{0,80}%\s*(\d{1,2})\b|%\s*(\d{1,2})\b[^\n;]{0,40}randomness", re.IGNORECASE)
+REJECTION_MARKER_PATTERN = re.compile(r"\b(252|reject)", re.IGNORECASE)
+
+
+def check_unbiased_dice_pattern(contracts: List[Path]) -> List[Dict]:
+    """Heuristic for SEC-09: a raw small-modulus op against `randomness` with
+    no rejection-sampling marker anywhere in the file. Deliberately loose --
+    real judgment (does this actually need rejection sampling, is the
+    domain size right) is SEM-13's job in the AI stage; this is just a
+    static tripwire to make sure that gets looked at."""
+    findings = []
+    for c in contracts:
+        try:
+            text = c.read_text(errors="ignore")
+        except OSError:
+            continue
+        if REJECTION_MARKER_PATTERN.search(text):
+            continue
+        for i, line in enumerate(text.splitlines(), start=1):
+            if SMALL_MODULUS_PATTERN.search(line):
+                findings.append({
+                    "rule_id": "SEC-09",
+                    "severity": "high",
+                    "label": "possible modulo-biased randomness-to-small-range mapping (no rejection sampling marker found in file)",
+                    "file": str(c),
+                    "line": i,
+                    "snippet": line.strip()[:200],
+                })
+    return findings
+
+
 def grep_security_patterns(contracts: List[Path]) -> List[Dict]:
     findings = []
     for rule_id, severity, label, pattern in DANGEROUS_PATTERNS:
@@ -254,6 +285,7 @@ def analyze(contracts: List[Path], rubric: Dict) -> Dict:
     interface_result = check_interface_conformance(compile_result, contracts, rubric)
     lint_result = run_lint(contracts)
     security_findings = grep_security_patterns(contracts)
+    security_findings.extend(check_unbiased_dice_pattern(contracts))
 
     return {
         "contracts_analyzed": [str(c) for c in contracts],

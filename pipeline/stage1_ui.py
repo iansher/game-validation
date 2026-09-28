@@ -68,6 +68,20 @@ def check_origin_wildcard(ui_files: List[Path]) -> List[Dict]:
     } for h in hits]
 
 
+def check_reveal_outcome_present(ui_files: List[Path]) -> List[Dict]:
+    hits = _grep_all(ui_files, [r"hostApi\.revealOutcome|\.revealOutcome\s*\("])
+    if hits:
+        return []
+    return [{
+        "rule_id": "UI-06", "severity": "high",
+        "title": "No call to hostApi.revealOutcome found",
+        "detail": "revealOutcome({ sessionId }) is now a mandatory guest->host call after a win's "
+                  "presentation finishes -- without it the host's balance-display guard stays stale "
+                  "until the player reloads. Not found in any scanned UI file (may be a false "
+                  "negative if revealOutcome is called from a file this pipeline didn't scan).",
+    }]
+
+
 def check_bridge_usage(ui_files: List[Path]) -> Dict:
     hits = _grep_all(ui_files, BRIDGE_USAGE_PATTERNS)
     return {
@@ -104,6 +118,7 @@ def analyze(ui_files: List[Path], package_json: Optional[Path]) -> Dict:
     findings = []
     findings.extend(check_wallet_signing(ui_files))
     findings.extend(check_origin_wildcard(ui_files))
+    findings.extend(check_reveal_outcome_present(ui_files))
     bridge = check_bridge_usage(ui_files)
     npm_audit = run_npm_audit(package_json)
 

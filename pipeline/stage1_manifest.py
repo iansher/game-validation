@@ -4,7 +4,6 @@ CHAIN_WTF_CASINO_GAMES.md / games-sdk/src/manifest.ts (validateCasinoGameManifes
 from __future__ import annotations
 
 import json
-import math
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -69,10 +68,10 @@ def validate(manifest_path: Optional[Path]) -> Dict:
         if presentation.get("mode") not in ("full-iframe", "embedded"):
             fail("MANIFEST-06", "high", "presentation.mode must be 'full-iframe' or 'embedded'",
                  f"got {presentation.get('mode')!r}")
-        min_height = presentation.get("minHeight")
-        if min_height is not None and not (isinstance(min_height, (int, float)) and math.isfinite(min_height)):
-            fail("MANIFEST-07", "medium", "presentation.minHeight must be a finite number",
-                 f"got {min_height!r}")
+        # presentation.minHeight is no longer validated -- removed from the
+        # live schema (height is now runtime-reported via
+        # hostApi.reportContentSize/observeGameContentSize when
+        # capabilities.resize is true; see rubric UI-07). Do not flag it.
         panels = presentation.get("hostPanels")
         if not isinstance(panels, dict) or not all(
             isinstance(panels.get(k), bool) for k in ("openSession", "history", "status")

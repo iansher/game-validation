@@ -38,7 +38,12 @@ interface ICasinoGameV2 {
   ) external view returns (uint256 maxEscrowStake, uint256 maxReservedProfit);
 
   /// @notice Risk parameters for portfolio VaR. `probabilityWad` is win probability in WAD (1e18 = 100%) for the VaR binary / tail model.
-  /// @notice `subJackpotVarianceScaled` is 0 unless the game supplies a precomputed sub-jackpot variance (heavy-tail slots).
+  /// @notice `bodyVarianceScaled` is the body variance (variance of the round's payout with the
+  ///         top tier removed), counted on every bet, in wei^2 x 1e18. 0 only if the top tier is
+  ///         the sole winning outcome (renamed from `subJackpotVarianceScaled`; same position and
+  ///         type, so the ABI encoding is unchanged). A multi-tier paytable whose top multiplier
+  ///         exceeds the heavy-tail threshold cannot be whitelisted while quoting 0 here unless
+  ///         the security council has registered a per-game sigma floor.
   function quoteRiskParams(
     uint256 wager,
     bytes calldata gameData
@@ -49,7 +54,7 @@ interface ICasinoGameV2 {
       uint256 maxPayout,
       uint256 probabilityWad,
       uint256 expectedPayout,
-      uint256 subJackpotVarianceScaled
+      uint256 bodyVarianceScaled
     );
 
   function onSessionStart(

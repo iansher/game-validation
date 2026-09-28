@@ -21,32 +21,58 @@ scoped as "produce a recording/trace to make that human review faster," not
 
 ## Why this is grounded, not generic
 
-This isn't written against an imagined SDK. `rubric/rubric.json` was built
-by reading:
-- The actual SDK docs bundle (`casino-games-docs`: `CONTRACT_CONSTRAINTS.md`,
-  `SLOTS_RISK_AND_RESERVES.md`, `VISUAL_AND_UX.md`, `REPO_STRUCTURE.md`,
-  `CHAIN_WTF_CASINO_GAMES.md`, `games-sdk/`).
-- The protocol contracts repo (`chain-contracts-main`).
-- A real, working game integration (`happydaze`) used here as the
-  known-good smoke-test fixture.
+This isn't written against an imagined SDK. The first pass of
+`rubric/rubric.json` was built by reading:
+- A local SDK docs bundle (`casino-games-docs`), the protocol contracts repo
+  (`chain-contracts-main`), and a real, working game integration
+  (`happydaze`, used throughout as the known-good smoke-test fixture).
 
-**Important finding from that process: the SDK interface itself has version
-drift.** Three local copies of `ICasinoGameV2.sol` disagree with each other:
+That process surfaced a real problem: those three local sources disagreed
+with each other on the exact shape of `ICasinoGameV2.sol` (one had an
+`outcome` field the others lacked, one was missing `quoteRiskParams`, one
+was missing `quoteForfeitPayout`). Rather than guess, that was written up as
+an open question for whoever owns the protocol repo.
 
-| Source | has `outcome` field | has `quoteRiskParams` | has `quoteForfeitPayout` |
-|---|---|---|---|
-| `chain-contracts-main` (protocol repo) | yes | **no** | **no** |
-| SDK docs bundle | yes | yes | **no** |
-| `happydaze` (real shipped integration) | **no** | yes | yes |
+**It's since been resolved by checking the live docs at
+[sdk.chain.wtf](https://sdk.chain.wtf/)**, which is authoritative and
+actively maintained (it has its own dated changelog). Cross-checking
+against it:
+- Confirmed **`happydaze`'s interface shape was correct all along** (no
+  `outcome` field; both `quoteRiskParams` and `quoteForfeitPayout` present)
+  -- the local docs bundle and the `chain-contracts-main` checkout were both
+  just stale snapshots.
+- Found one **real, non-cosmetic drift** the local bundle couldn't have
+  caught because it predates the change: `quoteRiskParams`'s 4th return
+  value was renamed `subJackpotVarianceScaled` -> **`bodyVarianceScaled`**,
+  with a genuine semantics change alongside the rename -- it's now "body
+  variance, counted on every bet" rather than "0 unless the game supplies a
+  precomputed jackpot variance." A multi-tier/slot game that quotes `0`
+  here while its top multiplier clears the heavy-tail threshold **cannot be
+  whitelisted at all** (hard revert
+  `CasinoConfigFacet__HeavyTailGameWithoutVarianceSource`) unless the
+  security council registers a per-game sigma floor. `rubric/ICasinoGameV2.sol`
+  and `rubric.json` (rule `SEM-12`) have been updated accordingly, and this
+  turns what my first AI review pass flagged as a medium-severity nice-to-have
+  on `happydaze` into a **critical, whitelist-blocking defect** -- see
+  "Validated against" below.
+- Also picked up several things the local bundle simply didn't cover at all
+  (now new rules `SEC-09`/`SEM-13` unbiased-d6 rejection sampling,
+  `UI-06`/`SEM-15` the now-mandatory `hostApi.revealOutcome` call,
+  `IFACE-03` the stateless/opaque session-encoding requirement, `UI-07` the
+  removed static `presentation.minHeight` field, `SEM-16` wager clamping to
+  live risk limits) and corrected two rules that were subtly wrong
+  (`SEM-03`'s payout cap is `escrowedStake + reservedProfit`, not directly
+  `quoteRiskParams.maxPayout`; `SEM-07`, which assumed `onSessionStart` is
+  called twice, was removed outright -- the facet has called it once since
+  the stateless-session release).
 
-`rubric/ICasinoGameV2.sol` uses happydaze's version (the superset) as the
-reference for interface-conformance checks, since it's the most complete and
-belongs to a real working integration. **This needs a real answer from
-whoever owns the protocol repo before this pipeline is trusted for real
-submissions** -- if the wrong interface version is authoritative, the
-interface-conformance stage will produce false positives or negatives
-against real entries. Flagging this rather than guessing was more useful
-than silently picking one.
+**Live-docs source note, for future re-checks:** `sdk.chain.wtf`'s own pages
+are mostly internally consistent, with one small exception worth knowing
+about: `CONTRACT_CONSTRAINTS.md`'s prose bullet list says `StepResult`
+includes an `outcome` field, but the actual canonical Solidity code block in
+`CHAIN_WTF_CASINO_GAMES.md` §2.1 (explicitly labeled canonical/authoritative)
+does not have one. Went with the code block. Worth a one-line heads-up to
+whoever maintains that page.
 
 ## Layout
 
@@ -95,21 +121,25 @@ No dependencies to install: pure Python 3 stdlib, shelling out to `forge`
 ## Validated against
 
 - **`happydaze`** (`/home/ian/chain/happydaze`, real working integration) --
-  run as the positive case. Stage 1: compiles clean, interface conforms,
-  manifest valid, no UI flags. Stage 2 AI review: no false-positive
-  critical/high findings on real production code (it explicitly confirmed
-  the payout-never-exceeds-cap and probability-targets-top-tier checks
-  passed), but it did surface five genuine, non-obvious, low/medium-severity
-  issues worth a human's attention: **a real off-by-one in the weighted-draw
-  boundary condition** (`r <= cumulative` vs. `r < cumulative`, slightly
-  under-weighting the jackpot tier vs. its quoted `probabilityWad`), a
-  `?debugForce=` payout bypass shipped live in the production UI bridge (not
-  gated to a dev build), `subJackpotVarianceScaled` hardcoded to 0 despite
-  this being a textbook heavy-tail jackpot game, no forfeit/cancel path if a
-  session gets stuck awaiting randomness, and the `'*'`-origin Penpal
-  fallback the SDK docs themselves flag as dev-only. This is a much better
-  signal than "found nothing" -- it shows the review engages with the
-  specific code rather than reciting the rubric.
+  run as the positive case, re-run after the rubric was corrected against
+  the live `sdk.chain.wtf` docs (see below). Stage 1: compiles clean,
+  interface conforms, manifest valid, no UI flags. Stage 2 AI review now
+  correctly comes back **`reject`** (it was `approve_with_minor_notes` before
+  the rubric fix): `bodyVarianceScaled` is hardcoded to `0` on a genuine
+  heavy-tail game (1000x max multiplier, ~1-in-1.14M top-tier odds), which
+  the current docs confirm is a hard whitelist-blocking revert, not a
+  nice-to-have. It also independently confirmed the payout math is
+  internally consistent (`quoteCaps`/`quoteRiskParams`/`onSessionStart`/
+  `onRandomness` all derive `maxPayout` from the same formula), and surfaced
+  four more real, non-obvious issues: a `?debugForce=` payout bypass shipped
+  live with no build/env gate, `capabilities.resize: true` in the manifest
+  with no code anywhere that reports content size to match, no wager
+  clamping against live risk limits before `openSession`, and no evidence
+  the guest forwards `ui.theme`/`ui.locale`. Across two independent runs it
+  also surfaced (only on the first run) a real off-by-one in the weighted-draw
+  boundary condition (`r <= cumulative` vs. `r < cumulative`) -- **the AI
+  stage has real run-to-run variance**; treat one pass as a strong first
+  read, not an exhaustive one. See "Known limitations" below.
 - **`fixtures/broken_submission`** -- 10+ deliberately planted bugs spanning
   every rule category. Stage 1 caught all 10 statically-checkable ones
   (missing interface function, wrong mutability, `selfdestruct`, `tx.origin`,
@@ -165,6 +195,19 @@ No dependencies to install: pure Python 3 stdlib, shelling out to `forge`
   explicit that only whitelisted contract addresses can be invoked by the
   facet at all, so nothing here does a live `openSession` call. Everything
   is source-level (static + AI).
+- **A clean local-simulator run is not evidence of passing production
+  whitelisting** (rubric rule `SEM-17`) -- `LOCAL_SIMULATOR.md` states its
+  minimal casino stand-in runs with no diamond, no whitelist governance, and
+  no portfolio risk accounting, so the heavy-tail sigma-floor hard-revert
+  that sank `happydaze` above is invisible in local dev testing and can only
+  be caught by reading the actual `quoteRiskParams` numbers.
+- **The AI review stage has real run-to-run variance.** Two independent runs
+  against the same unmodified `happydaze` code agreed on the critical
+  finding but differed on one lower-confidence one (a subtle off-by-one only
+  surfaced once). Treat each run as a strong single read, not an exhaustive
+  one -- for anything near a launch decision, consider running stage 2 twice
+  and diffing, or raising the model's effort/adding a second pass focused
+  only on arithmetic/boundary conditions.
 
 ## Not automated in this pass: the UI walkthrough
 
@@ -193,15 +236,19 @@ being bolted onto this one.
 
 ## Open questions for whoever owns the protocol/SDK repos
 
-1. **Which `ICasinoGameV2.sol` is actually current** -- see the version-drift
-   table above. This blocks trusting the interface-conformance check for
-   real submissions.
-2. Is there (or should there be) a fixed **submission format** (a few
+~~Which `ICasinoGameV2.sol` is actually current~~ -- **resolved** by checking
+`sdk.chain.wtf` directly (see above). Still open:
+
+1. Is there (or should there be) a fixed **submission format** (a few
    required paths/fields) rather than free-form repo discovery? Even just
    "contract path, manifest path, guest build URL" declared explicitly in a
    submission form would remove the biggest heuristic-guessing risk in this
    pipeline.
-3. Do you want a **hard RTP/house-edge bound** enforced, or just internal
-   consistency (quoted vs. simulated)? SLOTS_RISK_AND_RESERVES.md doesn't
+2. Do you want a **hard RTP/house-edge bound** enforced, or just internal
+   consistency (quoted vs. simulated)? `SLOTS_RISK_AND_RESERVES.md` doesn't
    state a mandated range, so `rubric.json` only checks consistency --
    confirm that's intentional before this becomes a gate.
+3. Minor: `CONTRACT_CONSTRAINTS.md`'s prose lists an `outcome` field on
+   `StepResult` that isn't in `CHAIN_WTF_CASINO_GAMES.md`'s canonical
+   Solidity block (see note above) -- probably just a stale sentence, worth
+   a quick fix so it stops confusing anyone reading only that page.
